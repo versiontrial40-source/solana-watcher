@@ -9,16 +9,33 @@ const address = new PublicKey(process.env.WALLET_ADDRESS);
 
 // Send Telegram message
 async function sendMessage(text) {
-    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            chat_id: CHAT_ID,
-            text: text
-        })
-    });
-}
+    try {
+        const res = await fetch(
+            `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    chat_id: CHAT_ID,
+                    text: text
+                }),
+                timeout: 10000
+            }
+        );
 
+        if (!res.ok) {
+            console.log("Telegram error:", await res.text());
+        }
+
+    } catch (err) {
+        console.log("Failed to send message, retrying...", err.message);
+
+        // simple retry
+        setTimeout(() => {
+            sendMessage(text);
+        }, 5000);
+    }
+}
 // Listen for transactions
 connection.onLogs(address, async (logInfo) => {
     console.log("New transaction:", logInfo.signature);
