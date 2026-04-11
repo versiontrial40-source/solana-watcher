@@ -1,3 +1,14 @@
+import express from "express";
+
+const app = express();
+
+app.get("/", (req, res) => {
+    res.send("Solana watcher is running 👀");
+});
+
+app.listen(process.env.PORT || 3000, () => {
+    console.log("🌐 Server is running");
+});
 import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 import fetch from "node-fetch";
 
