@@ -18,7 +18,7 @@ jobs:
 
       - run: rm -rf node_modules package-lock.json
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install --no-audit --no-fund
 
       - run: node index.js
         env:
