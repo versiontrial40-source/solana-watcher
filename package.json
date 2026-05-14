@@ -2,9 +2,6 @@
   "name": "solana-watcher",
   "version": "1.0.0",
   "type": "module",
-  "scripts": {
-    "start": "node index.js"
-  },
   "dependencies": {
     "@solana/web3.js": "^1.95.0",
     "node-fetch": "^3.3.2"
