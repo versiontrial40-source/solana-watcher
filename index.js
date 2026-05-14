@@ -2,23 +2,23 @@ import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 import fetch from "node-fetch";
 
 /* ========================
-   ENV
+   ENV VARIABLES (IMPORTANT)
 ======================== */
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
 
 const GIST_ID = process.env.GIST_ID;
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const GH_TOKEN = process.env.GH_TOKEN;
 
 /* ========================
-   SOLANA
+   SOLANA CONNECTION
 ======================== */
 const connection = new Connection(clusterApiUrl("mainnet-beta"), "confirmed");
 const address = new PublicKey(WALLET_ADDRESS);
 
 /* ========================
-   GIST STATE
+   GET STATE FROM GIST
 ======================== */
 async function getState() {
     const res = await fetch(`https://api.github.com/gists/${GIST_ID}`);
@@ -28,11 +28,14 @@ async function getState() {
     return JSON.parse(file);
 }
 
+/* ========================
+   SAVE STATE TO GIST
+======================== */
 async function saveState(sig) {
     await fetch(`https://api.github.com/gists/${GIST_ID}`, {
         method: "PATCH",
         headers: {
-            Authorization: `Bearer ${GITHUB_TOKEN}`,
+            Authorization: `Bearer ${GH_TOKEN}`,
             Accept: "application/vnd.github+json",
             "Content-Type": "application/json"
         },
@@ -47,7 +50,7 @@ async function saveState(sig) {
 }
 
 /* ========================
-   TELEGRAM
+   TELEGRAM MESSAGE
 ======================== */
 async function sendMessage(text) {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -61,43 +64,31 @@ async function sendMessage(text) {
 }
 
 /* ========================
-   CORE CHECK
+   CHECK TRANSACTIONS
 ======================== */
-async function checkOnce(state) {
+async function run() {
+    const state = await getState();
+
     const sigs = await connection.getSignaturesForAddress(address, {
         limit: 5
     });
 
-    if (!sigs.length) return state;
+    if (!sigs.length) return;
 
     const latest = sigs[0].signature;
 
     if (state.lastSig === latest) {
-        console.log("No new tx");
-        return state;
+        console.log("No new transaction");
+        return;
     }
 
     console.log("🚨 NEW TX:", latest);
 
     await sendMessage(
-        `🚨 New Solana TX detected:\nhttps://solscan.io/tx/${latest}`
+        `🚨 New Solana Transaction:\nhttps://solscan.io/tx/${latest}`
     );
 
     await saveState(latest);
-
-    return { lastSig: latest };
-}
-
-/* ========================
-   MAIN LOOP (FAST MODE)
-======================== */
-async function run() {
-    let state = await getState();
-
-    for (let i = 0; i < 6; i++) {
-        state = await checkOnce(state);
-        await new Promise(r => setTimeout(r, 10000)); // 10 sec
-    }
 }
 
 run().catch(console.error);
