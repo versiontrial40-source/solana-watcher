@@ -1,9 +1,5 @@
-import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 import fetch from "node-fetch";
 
-/* ========================
-   ENV VARIABLES (IMPORTANT)
-======================== */
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
@@ -11,26 +7,17 @@ const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
 const GIST_ID = process.env.GIST_ID;
 const GH_TOKEN = process.env.GH_TOKEN;
 
-/* ========================
-   SOLANA CONNECTION
-======================== */
-const connection = new Connection(clusterApiUrl("mainnet-beta"), "confirmed");
-const address = new PublicKey(WALLET_ADDRESS);
+const RPC_URL = "https://api.mainnet-beta.solana.com";
 
 /* ========================
-   GET STATE FROM GIST
+   GIST STATE
 ======================== */
 async function getState() {
     const res = await fetch(`https://api.github.com/gists/${GIST_ID}`);
     const data = await res.json();
-
-    const file = data.files["state.json"].content;
-    return JSON.parse(file);
+    return JSON.parse(data.files["state.json"].content);
 }
 
-/* ========================
-   SAVE STATE TO GIST
-======================== */
 async function saveState(sig) {
     await fetch(`https://api.github.com/gists/${GIST_ID}`, {
         method: "PATCH",
@@ -50,7 +37,26 @@ async function saveState(sig) {
 }
 
 /* ========================
-   TELEGRAM MESSAGE
+   SOLANA RPC (RAW)
+======================== */
+async function getSignatures() {
+    const res = await fetch(RPC_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "getSignaturesForAddress",
+            params: [WALLET_ADDRESS, { limit: 5 }]
+        })
+    });
+
+    const data = await res.json();
+    return data.result || [];
+}
+
+/* ========================
+   TELEGRAM
 ======================== */
 async function sendMessage(text) {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -64,25 +70,22 @@ async function sendMessage(text) {
 }
 
 /* ========================
-   CHECK TRANSACTIONS
+   MAIN
 ======================== */
 async function run() {
     const state = await getState();
-
-    const sigs = await connection.getSignaturesForAddress(address, {
-        limit: 5
-    });
+    const sigs = await getSignatures();
 
     if (!sigs.length) return;
 
     const latest = sigs[0].signature;
 
     if (state.lastSig === latest) {
-        console.log("No new transaction");
+        console.log("No new tx");
         return;
     }
 
-    console.log("🚨 NEW TX:", latest);
+    console.log("NEW TX:", latest);
 
     await sendMessage(
         `🚨 New Solana Transaction:\nhttps://solscan.io/tx/${latest}`
