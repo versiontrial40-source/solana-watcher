@@ -1,85 +1,103 @@
 import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 import fetch from "node-fetch";
-import fs from "fs";
 
 /* ========================
-   ENV VARIABLES
+   ENV
 ======================== */
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
 
+const GIST_ID = process.env.GIST_ID;
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+
 /* ========================
-   SOLANA CONNECTION
+   SOLANA
 ======================== */
 const connection = new Connection(clusterApiUrl("mainnet-beta"), "confirmed");
 const address = new PublicKey(WALLET_ADDRESS);
 
 /* ========================
-   STATE STORAGE (IMPORTANT)
+   GIST STATE
 ======================== */
-const STATE_FILE = "state.json";
+async function getState() {
+    const res = await fetch(`https://api.github.com/gists/${GIST_ID}`);
+    const data = await res.json();
 
-function loadState() {
-    try {
-        return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
-    } catch {
-        return { lastSig: null };
-    }
+    const file = data.files["state.json"].content;
+    return JSON.parse(file);
 }
 
-function saveState(sig) {
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ lastSig: sig }));
+async function saveState(sig) {
+    await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+        method: "PATCH",
+        headers: {
+            Authorization: `Bearer ${GITHUB_TOKEN}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            files: {
+                "state.json": {
+                    content: JSON.stringify({ lastSig: sig })
+                }
+            }
+        })
+    });
 }
 
 /* ========================
    TELEGRAM
 ======================== */
 async function sendMessage(text) {
-    try {
-        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                chat_id: CHAT_ID,
-                text
-            })
-        });
-    } catch (err) {
-        console.log("Telegram error:", err.message);
-    }
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            chat_id: CHAT_ID,
+            text
+        })
+    });
 }
 
 /* ========================
-   MAIN CHECK FUNCTION
+   CORE CHECK
 ======================== */
-async function checkTransactions() {
-    const state = loadState();
-
-    const signatures = await connection.getSignaturesForAddress(address, {
+async function checkOnce(state) {
+    const sigs = await connection.getSignaturesForAddress(address, {
         limit: 5
     });
 
-    if (!signatures || signatures.length === 0) return;
+    if (!sigs.length) return state;
 
-    const latest = signatures[0].signature;
+    const latest = sigs[0].signature;
 
-    // no new tx
     if (state.lastSig === latest) {
-        console.log("No new transactions");
-        return;
+        console.log("No new tx");
+        return state;
     }
 
-    console.log("🚨 New transaction detected:", latest);
+    console.log("🚨 NEW TX:", latest);
 
     await sendMessage(
-        `🚨 New Solana transaction:\nhttps://solscan.io/tx/${latest}`
+        `🚨 New Solana TX detected:\nhttps://solscan.io/tx/${latest}`
     );
 
-    saveState(latest);
+    await saveState(latest);
+
+    return { lastSig: latest };
 }
 
 /* ========================
-   RUN
+   MAIN LOOP (FAST MODE)
 ======================== */
-checkTransactions().catch(console.error);
+async function run() {
+    let state = await getState();
+
+    for (let i = 0; i < 6; i++) {
+        state = await checkOnce(state);
+        await new Promise(r => setTimeout(r, 10000)); // 10 sec
+    }
+}
+
+run().catch(console.error);
