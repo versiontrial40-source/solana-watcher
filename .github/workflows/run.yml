@@ -16,6 +16,8 @@ jobs:
         with:
           node-version: 18
 
+      - run: rm -rf node_modules package-lock.json
+
       - run: npm install --legacy-peer-deps
 
       - run: node index.js
