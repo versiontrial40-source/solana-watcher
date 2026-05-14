@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "@solana/web3.js": "^1.95.0",
-    "node-fetch": "^3.3.2"
+    "@solana/web3.js": "1.95.4",
+    "node-fetch": "3.3.2"
   }
 }
