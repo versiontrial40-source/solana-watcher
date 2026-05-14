@@ -1,19 +1,6 @@
-import express from "express";
 import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 import fetch from "node-fetch";
-
-/* ========================
-   EXPRESS SERVER (KEEP ALIVE)
-======================== */
-const app = express();
-
-app.get("/", (req, res) => {
-    res.send("Solana watcher is running 👀");
-});
-
-app.listen(process.env.PORT || 3000, () => {
-    console.log("🌐 Server is running");
-});
+import fs from "fs";
 
 /* ========================
    ENV VARIABLES
@@ -29,81 +16,70 @@ const connection = new Connection(clusterApiUrl("mainnet-beta"), "confirmed");
 const address = new PublicKey(WALLET_ADDRESS);
 
 /* ========================
-   DUPLICATE PROTECTION
+   STATE STORAGE (IMPORTANT)
 ======================== */
-const seen = new Set();
+const STATE_FILE = "state.json";
+
+function loadState() {
+    try {
+        return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+    } catch {
+        return { lastSig: null };
+    }
+}
+
+function saveState(sig) {
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ lastSig: sig }));
+}
 
 /* ========================
-   TELEGRAM FUNCTION
+   TELEGRAM
 ======================== */
 async function sendMessage(text) {
     try {
-        const now = Date.now();
-
-        const res = await fetch(
-            `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
-            {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    chat_id: CHAT_ID,
-                    text: text
-                })
-            }
-        );
-
-        const data = await res.json();
-
-        if (!data.ok) {
-            console.log("Telegram error:", data);
-        }
-
+        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                chat_id: CHAT_ID,
+                text
+            })
+        });
     } catch (err) {
-        console.log("Send error:", err.message);
-
-        // retry after 5 sec
-        setTimeout(() => sendMessage(text), 5000);
+        console.log("Telegram error:", err.message);
     }
 }
 
 /* ========================
-   SOLANA LISTENER
+   MAIN CHECK FUNCTION
 ======================== */
-connection.onLogs(address, async (logInfo) => {
-    try {
-        const sig = logInfo.signature;
+async function checkTransactions() {
+    const state = loadState();
 
-        // prevent duplicates
-        if (seen.has(sig)) return;
-        seen.add(sig);
+    const signatures = await connection.getSignaturesForAddress(address, {
+        limit: 5
+    });
 
-        console.log("🚨 Transaction:", sig);
+    if (!signatures || signatures.length === 0) return;
 
-        await sendMessage(
-            `🚨 New transaction detected!\nhttps://solscan.io/tx/${sig}`
-        );
+    const latest = signatures[0].signature;
 
-    } catch (err) {
-        console.log("Listener error:", err.message);
+    // no new tx
+    if (state.lastSig === latest) {
+        console.log("No new transactions");
+        return;
     }
-});
+
+    console.log("🚨 New transaction detected:", latest);
+
+    await sendMessage(
+        `🚨 New Solana transaction:\nhttps://solscan.io/tx/${latest}`
+    );
+
+    saveState(latest);
+}
 
 /* ========================
-   HEARTBEAT (RAILWAY STABILITY)
+   RUN
 ======================== */
-setInterval(() => {
-    console.log("💓 alive heartbeat");
-}, 25000);
-
-/* ========================
-   CRASH PROTECTION
-======================== */
-process.on("uncaughtException", (err) => {
-    console.log("CRASH FIX:", err.message);
-});
-
-process.on("unhandledRejection", (err) => {
-    console.log("PROMISE ERROR:", err);
-});
-
-console.log("👀 Watching wallet...");
+checkTransactions().catch(console.error);
